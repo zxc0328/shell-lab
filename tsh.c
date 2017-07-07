@@ -181,6 +181,7 @@ void eval(char *cmdline)
         //Block signal
         if ((pid = Fork()) == 0) {
             //Unblock signal
+            setpgid(0, 0);
             if (execve(args[0], args, environ) < 0) {
                 printf("%s: Command not found.\n", args[0]);
                 exit(0);
@@ -273,7 +274,7 @@ int builtin_cmd(char **argv)
 {
     if (!strcmp(argv[0], "quit")) {
         exit(0);
-    }else 
+    }
     return 0;     /* not a builtin command */
 }
 
@@ -319,7 +320,11 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
+    
+    pid_t fpid;
     // kill the foreground job
+    fpid = fgpid(jobs);
+    kill(fpid*-1, sig);
     return;
 }
 
