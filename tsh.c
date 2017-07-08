@@ -175,12 +175,19 @@ void eval(char *cmdline)
     if (args[0] == NULL) {
         return;
     }
-
+    
     // printf("%s\n", args[0]);
     if (!builtin_cmd(args)) {
+
+        sigset_t mask_all, mask_one, prev_one;
+        sigfillset(&mask_all);
+        sigemptyset(&mask_one);
+        sigaddset(&mask_one, SIGCHLD);
+        
+        sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
         //Block signal
         if ((pid = Fork()) == 0) {
-            //Unblock signal
+            sigprocmask(SIG_SETMASK, &prev_one, NULL);//Unblock SIGCHLD;
             setpgid(0, 0);
             if (execve(args[0], args, environ) < 0) {
                 printf("%s: Command not found.\n", args[0]);
@@ -193,14 +200,17 @@ void eval(char *cmdline)
         }else{
             state = FG;
         }
-        //Block signal
+        
+        sigprocmask(SIG_BLOCK, &mask_all, NULL);//Block signal
         addjob(jobs, pid, state, cmdline);
-        //Unblock signal
+        sigprocmask(SIG_SETMASK, &prev_one, NULL);//Unblock signal
+
         if (!bg) {
-            int status;
-            if (waitpid(pid, &status, 0) < 0){
-                unix_error("waitfg: waitpid error");
-            }
+            waitfg(pid);
+            // int status;
+            // if (waitpid(pid, &status, 0) < 0){
+            //     unix_error("waitfg: waitpid error");
+            // }
             // no need to delete foreground job, it's handled in sigchld_handler
         }else {
             printf("[%d] (%d) %s\n", pid2jid(pid), pid, cmdline);
@@ -275,6 +285,12 @@ int builtin_cmd(char **argv)
     if (!strcmp(argv[0], "quit")) {
         exit(0);
     }
+
+    if (!strcmp(argv[0], "jobs")) {
+        listjobs(jobs);
+        return 1;
+    }
+
     return 0;     /* not a builtin command */
 }
 
@@ -291,6 +307,17 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    while(fgpid(jobs) == pid) {
+        sleep(1);
+    }
+    // while(1) {
+
+    // }
+    // if (fgpid === pid) {
+
+    // }else {
+    //     //block
+    // }
     return;
 }
 
@@ -307,10 +334,24 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-    // Block Signal
-    // delete that job
-    // Unblock Signal
-    return;
+    // CSAPP P543
+    int olderrno = errno;
+    sigset_t mask_all, prev_all;
+    pid_t pid;
+
+    sigfillset(&mask_all);
+    while ((pid = waitpid(-1, NULL, 0)) > 0) {
+        printf("%d\n", pid);
+        sigprocmask(SIG_BLOCK, &mask_all, &prev_all);
+        deletejob(jobs, pid);
+        sigprocmask(SIG_SETMASK, &prev_all, NULL);
+    }
+
+    if (errno != ECHILD) {
+        unix_error("waitpid error");
+    }
+
+    errno = olderrno;
 }
 
 /* 
